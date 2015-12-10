@@ -23,7 +23,7 @@ This section describes how to run YCSB on ElasticSearch running locally.
 
 Clone the YCSB git repository and compile:
 
-    git clone git://github.com/brianfrankcooper/YCSB.git
+    git clone <the git location>
     cd YCSB
     mvn clean package
 
@@ -31,11 +31,11 @@ Clone the YCSB git repository and compile:
     
 Now you are ready to run! First, load the data:
 
-    ./bin/ycsb load elasticsearch -s -P workloads/workloada
+    ./bin/ycsb load elasticsearch -s -P workloads/workloada -p path.home=./
 
 Then, run the workload:
 
-    ./bin/ycsb run elasticsearch -s -P workloads/workloada
+    ./bin/ycsb run elasticsearch -s -P workloads/workloada -p path.home=./
 
 For further configuration see below: 
 
@@ -44,11 +44,9 @@ The default setting for the ElasticSearch node that is created is as follows:
 
     cluster.name=es.ycsb.cluster
     node.local=true
-    path.data=$TEMP_DIR/esdata
+    path.home=$TEMP_DIR/es
     discovery.zen.ping.multicast.enabled=false
     index.mapping._id.indexed=true
-    index.gateway.type=none
-    gateway.type=none
     index.number_of_shards=1
     index.number_of_replicas=0
     es.index.key=es.ycsb

@@ -17,9 +17,7 @@
 
 package com.yahoo.ycsb.db;
 
-import static org.elasticsearch.common.settings.ImmutableSettings.*;
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
-import static org.elasticsearch.index.query.FilterBuilders.rangeFilter;
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.node.NodeBuilder.nodeBuilder;
 
@@ -34,13 +32,14 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.Requests;
 import org.elasticsearch.client.transport.TransportClient;
-import org.elasticsearch.common.settings.ImmutableSettings.Builder;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.index.query.RangeFilterBuilder;
+import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.search.SearchHit;
 
+import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Properties;
@@ -90,43 +89,64 @@ public class ElasticSearchClient extends DB {
         .parseBoolean(props.getProperty("elasticsearch.remote", "false"));
     Boolean newdb =
         Boolean.parseBoolean(props.getProperty("elasticsearch.newdb", "false"));
-    Builder settings = settingsBuilder().put("node.local", "true")
-        .put("path.data", System.getProperty("java.io.tmpdir") + "/esdata")
-        .put("discovery.zen.ping.multicast.enabled", "false")
-        .put("index.mapping._id.indexed", "true")
-        .put("index.gateway.type", "none").put("gateway.type", "none")
-        .put("index.number_of_shards", "1")
-        .put("index.number_of_replicas", "0");
-
-    // if properties file contains elasticsearch user defined properties
-    // add it to the settings file (will overwrite the defaults).
-    settings.put(props);
+    
+    // Create default values if not defined in the property file
+    
+    if (!props.containsKey("node.local")) {
+      props.put("node.local", "true");
+    }
+    if (!props.containsKey("path.home")) {
+      props.put("path.home", System.getProperty("java.io.tmpdir") + "/es");
+    }
+    if (!props.containsKey("discovery.zen.ping.multicast.enabled")) {
+      props.put("discovery.zen.ping.multicast.enabled", "false");
+    }
+    if (!props.containsKey("index.mapping._id.indexed")) {
+      props.put("index.mapping._id.indexed", "true");
+    }
+    if (!props.containsKey("index.number_of_shards")) {
+      props.put("index.number_of_shards", "1");
+    }
+    if (!props.containsKey("index.number_of_replicas")) {
+      props.put("index.number_of_replicas", "0");
+    }
+    
     System.out.println(
-        "ElasticSearch starting node = " + settings.get("cluster.name"));
+        "ElasticSearch starting node = " + props.get("cluster.name"));
     System.out
-        .println("ElasticSearch node data path = " + settings.get("path.data"));
+        .println("ElasticSearch node data path = " + props.get("path.data"));
     System.out.println("ElasticSearch Remote Mode = " + remoteMode);
+    
     // Remote mode support for connecting to remote elasticsearch cluster
     if (remoteMode) {
-      settings.put("client.transport.sniff", true)
-          .put("client.transport.ignore_cluster_name", false)
-          .put("client.transport.ping_timeout", "30s")
-          .put("client.transport.nodes_sampler_interval", "30s");
-      // Default it to localhost:9300
+      Settings settings = Settings.settingsBuilder()
+              .put(props)
+              .put("client.transport.sniff", true)
+              .put("client.transport.ignore_cluster_name", false)
+              .put("client.transport.ping_timeout", "30s")
+              .put("client.transport.nodes_sampler_interval", "30s").build();
+
+     // Default it to localhost:9300
       String[] nodeList =
           props.getProperty("elasticsearch.hosts.list", DEFAULT_REMOTE_HOST)
               .split(",");
       System.out.println("ElasticSearch Remote Hosts = "
           + props.getProperty("elasticsearch.hosts.list", DEFAULT_REMOTE_HOST));
-      TransportClient tClient = new TransportClient(settings);
+      TransportClient tClient = TransportClient.builder().settings(settings).build();
       for (String h : nodeList) {
         String[] nodes = h.split(":");
-        tClient.addTransportAddress(
-            new InetSocketTransportAddress(nodes[0], 
-                Integer.parseInt(nodes[1])));
+        try {
+          tClient.addTransportAddress(
+                        new InetSocketTransportAddress(InetAddress.getByName(nodes[0]), 
+                          Integer.parseInt(nodes[1]))); 
+        } catch (Exception e) {
+          e.printStackTrace();
+        }
       }
       client = tClient;
     } else { // Start node only if transport client mode is disabled
+      Settings settings = Settings.settingsBuilder()
+              .put(props).build();
       node = nodeBuilder().clusterName(clusterName).settings(settings).node();
       node.start();
       client = node.client();
@@ -150,7 +170,6 @@ public class ElasticSearchClient extends DB {
     if (!remoteMode) {
       if (!node.isClosed()) {
         client.close();
-        node.stop();
         node.close();
       }
     } else {
@@ -318,9 +337,10 @@ public class ElasticSearchClient extends DB {
   public Status scan(String table, String startkey, int recordcount,
       Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
     try {
-      final RangeFilterBuilder filter = rangeFilter("_id").gte(startkey);
       final SearchResponse response = client.prepareSearch(indexKey)
-          .setTypes(table).setQuery(matchAllQuery()).setFilter(filter)
+          .setTypes(table)
+          .setQuery(matchAllQuery())
+          .setPostFilter(QueryBuilders.rangeQuery("_id").from(startkey))
           .setSize(recordcount).execute().actionGet();
 
       HashMap<String, ByteIterator> entry;
