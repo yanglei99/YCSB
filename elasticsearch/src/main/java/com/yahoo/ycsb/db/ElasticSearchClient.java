@@ -18,7 +18,6 @@
 package com.yahoo.ycsb.db;
 
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
-import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.node.NodeBuilder.nodeBuilder;
 
 import com.yahoo.ycsb.ByteIterator;
@@ -27,6 +26,7 @@ import com.yahoo.ycsb.DBException;
 import com.yahoo.ycsb.Status;
 import com.yahoo.ycsb.StringByteIterator;
 
+import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
@@ -90,7 +90,7 @@ public class ElasticSearchClient extends DB {
     Boolean newdb =
         Boolean.parseBoolean(props.getProperty("elasticsearch.newdb", "false"));
     
-    // Create default values if not defined in the property file
+    // Create default values if not defined 
     
     if (!props.containsKey("node.local")) {
       props.put("node.local", "true");
@@ -114,12 +114,13 @@ public class ElasticSearchClient extends DB {
     System.out.println(
         "ElasticSearch starting node = " + props.get("cluster.name"));
     System.out
-        .println("ElasticSearch node data path = " + props.get("path.data"));
+        .println("ElasticSearch path home = " + props.get("path.home"));
     System.out.println("ElasticSearch Remote Mode = " + remoteMode);
     
     // Remote mode support for connecting to remote elasticsearch cluster
+    Settings settings;
     if (remoteMode) {
-      Settings settings = Settings.settingsBuilder()
+      settings = Settings.settingsBuilder()
               .put(props)
               .put("client.transport.sniff", true)
               .put("client.transport.ignore_cluster_name", false)
@@ -145,24 +146,23 @@ public class ElasticSearchClient extends DB {
       }
       client = tClient;
     } else { // Start node only if transport client mode is disabled
-      Settings settings = Settings.settingsBuilder()
+      settings = Settings.settingsBuilder()
               .put(props).build();
       node = nodeBuilder().clusterName(clusterName).settings(settings).node();
       node.start();
       client = node.client();
     }
 
-    if (newdb) {
+    boolean exists = client.admin().indices()
+            .exists(Requests.indicesExistsRequest(indexKey)).actionGet()
+            .isExists();
+
+    if (exists && newdb) {
       client.admin().indices().prepareDelete(indexKey).execute().actionGet();
-      client.admin().indices().prepareCreate(indexKey).execute().actionGet();
-    } else {
-      boolean exists = client.admin().indices()
-          .exists(Requests.indicesExistsRequest(indexKey)).actionGet()
-          .isExists();
-      if (!exists) {
-        client.admin().indices().prepareCreate(indexKey).execute().actionGet();
-      }
     }
+    if (!exists || newdb) {
+      CreateIndexResponse createIndexResponse = client.admin().indices().prepareCreate(indexKey).execute().actionGet();
+    } 
   }
 
   @Override
@@ -253,8 +253,7 @@ public class ElasticSearchClient extends DB {
   public Status read(String table, String key, Set<String> fields,
       HashMap<String, ByteIterator> result) {
     try {
-      final GetResponse response =
-          client.prepareGet(indexKey, table, key).execute().actionGet();
+      final GetResponse response = client.prepareGet(indexKey, table, key).execute().actionGet();
 
       if (response.isExists()) {
         if (fields != null) {
@@ -270,6 +269,7 @@ public class ElasticSearchClient extends DB {
         }
         return Status.OK;
       }
+     
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -294,8 +294,7 @@ public class ElasticSearchClient extends DB {
   public Status update(String table, String key,
       HashMap<String, ByteIterator> values) {
     try {
-      final GetResponse response =
-          client.prepareGet(indexKey, table, key).execute().actionGet();
+      final GetResponse response = client.prepareGet(indexKey, table, key).execute().actionGet();
 
       if (response.isExists()) {
         for (Entry<String, String> entry : StringByteIterator
@@ -308,7 +307,6 @@ public class ElasticSearchClient extends DB {
 
         return Status.OK;
       }
-
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -339,8 +337,7 @@ public class ElasticSearchClient extends DB {
     try {
       final SearchResponse response = client.prepareSearch(indexKey)
           .setTypes(table)
-          .setQuery(matchAllQuery())
-          .setPostFilter(QueryBuilders.rangeQuery("_id").from(startkey))
+          .setQuery(QueryBuilders.rangeQuery("_id").from(startkey))
           .setSize(recordcount).execute().actionGet();
 
       HashMap<String, ByteIterator> entry;
