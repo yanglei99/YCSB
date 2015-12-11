@@ -26,7 +26,6 @@ import com.yahoo.ycsb.DBException;
 import com.yahoo.ycsb.Status;
 import com.yahoo.ycsb.StringByteIterator;
 
-import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
@@ -161,7 +160,7 @@ public class ElasticSearchClient extends DB {
       client.admin().indices().prepareDelete(indexKey).execute().actionGet();
     }
     if (!exists || newdb) {
-      CreateIndexResponse createIndexResponse = client.admin().indices().prepareCreate(indexKey).execute().actionGet();
+      client.admin().indices().prepareCreate(indexKey).execute().actionGet();
     } 
   }
 
